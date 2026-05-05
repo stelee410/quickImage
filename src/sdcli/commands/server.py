@@ -1,7 +1,13 @@
-"""``sd server`` — manage the local ComfyUI server lifecycle."""
+"""``sd server`` — manage the local ComfyUI server lifecycle.
+
+The actual platform-specific glue (start a detached process, find PIDs by
+listening port) lives in :mod:`sdcli.platform_utils`. Everything in this
+module above the helpers should read the same on Windows and Unix.
+"""
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -9,6 +15,7 @@ from pathlib import Path
 import click
 
 from sdcli import config as config_mod
+from sdcli import platform_utils as plat
 from sdcli.backends.comfy import ComfyClient
 from sdcli.utils.format import console, error, info, success, warn
 
@@ -54,30 +61,15 @@ def cmd_start(wait: bool) -> None:
         success(f"server already running at {cfg.server_url}")
         return
 
-    launcher = Path(cfg.get("server.launcher", ""))
-    if not launcher.exists():
-        error(f"launcher script not found: {launcher}")
-        info("set the path with: sd config set server.launcher <path-to-start-detached.ps1>")
-        raise click.exceptions.Exit(2)
-
-    info(f"launching: {launcher}")
-    proc = subprocess.run(
-        [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(launcher),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        error(f"launcher failed (exit {proc.returncode})")
-        if proc.stderr:
-            console.print(proc.stderr)
+    launcher = cfg.get("server.launcher", "")
+    launcher_path = Path(launcher) if launcher else None
+    try:
+        if launcher_path and launcher_path.exists():
+            _launch_via_script(launcher_path)
+        else:
+            _launch_builtin(cfg)
+    except _LaunchError as e:
+        error(str(e))
         raise click.exceptions.Exit(2)
 
     if not wait:
@@ -109,6 +101,15 @@ def cmd_stop(force: bool) -> None:
     cfg = config_mod.load()
     pids = _find_server_pids(cfg.server_url)
     if not pids:
+        # Try the PID file as a backstop (Unix launchers write one).
+        pid_path = Path(cfg.get("server.pid_path", "") or "")
+        if pid_path.exists():
+            try:
+                pid = int(pid_path.read_text().strip())
+                pids = [pid]
+            except (ValueError, OSError):
+                pass
+    if not pids:
         warn("no listening process found on configured port")
         return
     info(f"will kill PIDs: {pids}")
@@ -117,10 +118,17 @@ def cmd_stop(force: bool) -> None:
         return
     for pid in pids:
         try:
-            os.kill(pid, 9)
-            success(f"killed PID {pid}")
+            os.kill(pid, signal.SIGTERM)
+            success(f"sent SIGTERM to PID {pid}")
         except OSError as e:
-            error(f"failed to kill {pid}: {e}")
+            error(f"failed to signal {pid}: {e}")
+    # Best-effort cleanup of stale pid file
+    pid_path = Path(cfg.get("server.pid_path", "") or "")
+    if pid_path.exists():
+        try:
+            pid_path.unlink()
+        except OSError:
+            pass
 
 
 @server.command(name="restart")
@@ -163,26 +171,81 @@ def cmd_logs(follow: bool, lines: int) -> None:
             return
 
 
+# --- internals --------------------------------------------------------------
+
+
+class _LaunchError(RuntimeError):
+    pass
+
+
+def _launch_via_script(launcher: Path) -> None:
+    """Run an explicit launcher script (.ps1 on Windows, .sh on Unix)."""
+    info(f"launching: {launcher}")
+    if plat.IS_WINDOWS:
+        cmd = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(launcher)]
+    else:
+        if not os.access(launcher, os.X_OK):
+            try:
+                launcher.chmod(launcher.stat().st_mode | 0o111)
+            except OSError:
+                pass
+        cmd = [str(launcher)]
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        msg = f"launcher failed (exit {proc.returncode})"
+        if proc.stderr:
+            msg += "\n" + proc.stderr
+        raise _LaunchError(msg)
+
+
+def _launch_builtin(cfg: config_mod.Config) -> None:
+    """Fallback launcher used when no script is configured.
+
+    Windows: error out — there's no clean built-in detach without the
+    bundled PowerShell helper, and most Windows installs already point at
+    ``start-detached.ps1``. Tell the user how to fix it.
+    Unix: ``nohup python main.py ... > log 2>&1 &`` and write the PID file.
+    """
+    if plat.IS_WINDOWS:
+        raise _LaunchError(
+            "no launcher script configured. Set server.launcher to a "
+            ".ps1 file (e.g. D:\\comfyui-rocm\\start-detached.ps1)."
+        )
+
+    install_dir = cfg.install_dir
+    main_py = install_dir / "main.py"
+    if not main_py.exists():
+        raise _LaunchError(
+            f"could not find ComfyUI entry point at {main_py}. "
+            "Set server.install_dir to your ComfyUI directory."
+        )
+    python = cfg.server_python or "python3"
+    log_path = Path(cfg.get("server.log_path", "") or plat.default_log_path())
+    pid_path = Path(cfg.get("server.pid_path", "") or plat.default_pid_path())
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
+
+    info(f"launching: {python} {main_py}")
+    info(f"  log -> {log_path}")
+    info(f"  pid -> {pid_path}")
+    log_fh = open(log_path, "ab", buffering=0)
+    try:
+        proc = subprocess.Popen(
+            [python, str(main_py)],
+            cwd=str(install_dir),
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    finally:
+        log_fh.close()
+    pid_path.write_text(str(proc.pid) + "\n", encoding="utf-8")
+
+
 def _find_server_pids(server_url: str) -> list[int]:
-    """Find PIDs whose process listens on the configured port."""
     from urllib.parse import urlparse
 
     parsed = urlparse(server_url)
     port = parsed.port or 8188
-    # Use PowerShell Get-NetTCPConnection (more reliable than netstat parsing on Windows)
-    cmd = [
-        "powershell.exe",
-        "-NoProfile",
-        "-Command",
-        f"Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue "
-        "| Select-Object -ExpandProperty OwningProcess",
-    ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if proc.returncode != 0:
-        return []
-    pids: list[int] = []
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if line.isdigit():
-            pids.append(int(line))
-    return pids
+    return plat.find_listening_pids(port)

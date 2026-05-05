@@ -1,15 +1,20 @@
 """Config file management.
 
-Config lives at ``%APPDATA%\\sdcli\\config.toml``. First call seeds it from
-defaults pointing at the local ComfyUI install at D:\\comfyui-rocm.
+Config lives at a per-platform location (see ``platform_utils.config_dir``).
+First call seeds it with defaults that point at a sensible local ComfyUI
+install for the current OS:
+
+- Windows: ``D:\\comfyui-rocm`` with the bundled portable Python.
+- macOS / Linux: ``~/ComfyUI`` with a ``.venv`` Python or system ``python3``.
 """
 from __future__ import annotations
 
-import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from sdcli import platform_utils as plat
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -17,43 +22,56 @@ else:  # pragma: no cover
     import tomli as tomllib  # type: ignore
 
 
-def _appdata_dir() -> Path:
-    appdata = os.environ.get("APPDATA")
-    if appdata:
-        return Path(appdata) / "sdcli"
-    return Path.home() / ".config" / "sdcli"
-
-
-CONFIG_DIR = _appdata_dir()
+CONFIG_DIR = plat.config_dir()
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 HISTORY_PATH = CONFIG_DIR / "history.jsonl"
 
 
 # --- Default config ---------------------------------------------------------
 
-DEFAULT_CONFIG_TOML = """\
+def _default_config_toml() -> str:
+    """Build a default config.toml string using platform-specific paths."""
+    install = plat.default_install_dir()
+    python = plat.default_python()
+    launcher = plat.default_launcher()
+    log_path = plat.default_log_path()
+    pid_path = plat.default_pid_path()
+    models = install / "models"
+    output = install / "output"
+
+    # TOML basic strings need "\" doubled. Path objects render with forward
+    # slashes on Unix and backslashes on Windows; we just escape backslashes.
+    def q(p: Any) -> str:
+        return '"' + str(p).replace("\\", "\\\\") + '"'
+
+    return f"""\
 # quickImage CLI config
 # Edit with `sd config edit` or change individual keys with `sd config set k.path v`.
 
 [server]
 # ComfyUI HTTP API URL
 url = "http://127.0.0.1:8188"
-# Path to the comfyui-rocm install directory
-install_dir = "D:\\\\comfyui-rocm"
+# ComfyUI install directory (the one containing main.py)
+install_dir = {q(install)}
+# Python interpreter that runs ComfyUI
+python = {q(python)}
 # When set, `sd gen` will auto-start the server if it is not already running
 auto_start = true
 # Server stdout / stderr log
-log_path = "D:\\\\comfyui-rocm\\\\server.log"
-# Detached launcher script (reused by `sd server start`)
-launcher = "D:\\\\comfyui-rocm\\\\start-detached.ps1"
+log_path = {q(log_path)}
+# PID file written by the launcher (Unix). Unused on Windows.
+pid_path = {q(pid_path)}
+# Optional detached launcher script. If empty, `sd server start` uses a
+# built-in fallback (PowerShell on Windows, nohup on Unix).
+launcher = {q(launcher)}
 # Seconds to wait for the server to become responsive after start
 start_timeout = 180
 
 [paths]
 # ComfyUI models root (contains checkpoints/, loras/, vae/, ...)
-models_dir = "D:\\\\comfyui-rocm\\\\models"
+models_dir = {q(models)}
 # Where ComfyUI saves output images
-output_dir = "D:\\\\comfyui-rocm\\\\output"
+output_dir = {q(output)}
 # Where `sd gen` copies its results to (set to "" to leave them only in output_dir)
 copy_to_dir = ""
 
@@ -111,7 +129,11 @@ class Config:
 
     @property
     def install_dir(self) -> Path:
-        return Path(self.get("server.install_dir", "D:\\comfyui-rocm"))
+        return Path(self.get("server.install_dir", str(plat.default_install_dir())))
+
+    @property
+    def server_python(self) -> str:
+        return self.get("server.python", plat.default_python())
 
     @property
     def models_dir(self) -> Path:
@@ -184,7 +206,7 @@ def load(create_if_missing: bool = True) -> Config:
         if not create_if_missing:
             return Config(raw={}, path=CONFIG_PATH)
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CONFIG_PATH.write_text(DEFAULT_CONFIG_TOML, encoding="utf-8")
+        CONFIG_PATH.write_text(_default_config_toml(), encoding="utf-8")
     with CONFIG_PATH.open("rb") as fh:
         raw = tomllib.load(fh)
     return Config(raw=raw, path=CONFIG_PATH)
@@ -193,5 +215,5 @@ def load(create_if_missing: bool = True) -> Config:
 def reset() -> Config:
     """Replace config with defaults. Returns the freshly written Config."""
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(DEFAULT_CONFIG_TOML, encoding="utf-8")
+    CONFIG_PATH.write_text(_default_config_toml(), encoding="utf-8")
     return load(create_if_missing=False)

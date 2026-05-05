@@ -2,9 +2,10 @@
 
 A production-grade command-line interface for local Stable Diffusion image
 generation, sitting on top of a [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
-backend. Built for AMD Strix Halo (Ryzen AI Max+ 395, gfx1151) on Windows
-running [comfyui-rocm](https://github.com/patientx-cfz/comfyui-rocm) — but
-the CLI talks to ComfyUI over HTTP so any ComfyUI install works.
+backend. Cross-platform: **Windows** (originally built for AMD Strix Halo /
+Ryzen AI Max+ 395 + [comfyui-rocm](https://github.com/patientx-cfz/comfyui-rocm)),
+**macOS** (Apple Silicon via MPS), and **Linux** (CUDA / ROCm). The CLI
+talks to ComfyUI over HTTP so any local ComfyUI install works.
 
 ```sh
 sd gen "a serene mountain at sunrise"            # text-to-image
@@ -32,35 +33,92 @@ sd info                                          # one-shot system check
 
 ## Requirements
 
-- Windows 11 (it shells out to PowerShell for a few host-OS calls).
-- A working `comfyui-rocm` install at `D:\comfyui-rocm` (or change paths
-  via `sd config set`).
-- Python ≥ 3.11. The default install uses the Python 3.12 portable env
-  bundled with `comfyui-rocm` — no separate Python needed.
-- `aria2c` on PATH (recommended): `winget install aria2.aria2`.
-  Without it, downloads fall back to single-stream `requests`.
+- Python ≥ 3.11.
+- A local ComfyUI install (the setup scripts can clone & set one up for you).
+- `aria2c` on PATH (recommended for fast downloads). Without it, the CLI
+  falls back to single-stream `requests`.
+- Per-platform notes:
+  - **Windows** — uses PowerShell for a few host-OS calls. Default
+    expectation is `comfyui-rocm` at `D:\comfyui-rocm`.
+  - **macOS** — Apple Silicon (M1+) recommended; uses Metal/MPS via the
+    standard PyTorch wheel.
+  - **Linux** — CUDA via standard PyTorch wheels; ROCm/CPU users may want
+    to install torch manually before running setup.
 
 ## Install
 
+### Quick install (recommended)
+
+**macOS / Linux:**
+
+```sh
+git clone https://github.com/stelee410/quickImage.git ~/dev/quickImage
+cd ~/dev/quickImage
+./setup.sh
+```
+
+**Windows:**
+
 ```powershell
-# 1. clone
 git clone https://github.com/stelee410/quickImage.git D:\dev\quickImage
 cd D:\dev\quickImage
+.\setup.bat
+```
 
-# 2. editable install into the comfyui-rocm python env
-D:\comfyui-rocm\python_env\python.exe -m pip install -e . --no-deps
+The setup script is idempotent and does the following:
 
-# 3. add the cmd wrapper to your User PATH (only needs to run once)
-powershell -ExecutionPolicy Bypass -File .\bin\add-to-path.ps1
+1. Verifies Python ≥ 3.11.
+2. Creates a project venv at `<repo>/.venv` and installs `sdcli` (editable).
+3. Optionally clones ComfyUI into `~/ComfyUI` (Mac/Linux) and sets up its
+   own venv with PyTorch.
+4. Writes the initial config with paths pointing at *this* machine.
+5. Adds `<repo>/bin` to your shell `PATH` (`~/.zshrc` / `~/.bashrc` /
+   user `Path` registry on Windows).
+6. Runs `sd info` as a smoke test.
 
-# 4. open a fresh terminal so PATH is reloaded, then:
-sd --version
+### Manual install
+
+If you want to skip the setup script:
+
+<details>
+<summary>macOS / Linux</summary>
+
+```sh
+git clone https://github.com/stelee410/quickImage.git ~/dev/quickImage
+cd ~/dev/quickImage
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+echo 'export PATH="$HOME/dev/quickImage/bin:$PATH"' >> ~/.zshrc
+exec $SHELL -l
 sd info
 ```
 
-The first run of any `sd` command auto-creates the config file at
-`%APPDATA%\sdcli\config.toml` with sensible defaults. Edit with
-`sd config edit` or change individual keys with `sd config set`.
+</details>
+
+<details>
+<summary>Windows</summary>
+
+```powershell
+git clone https://github.com/stelee410/quickImage.git D:\dev\quickImage
+cd D:\dev\quickImage
+D:\comfyui-rocm\python_env\python.exe -m pip install -e . --no-deps
+powershell -ExecutionPolicy Bypass -File .\bin\add-to-path.ps1
+sd info
+```
+
+</details>
+
+The first run of any `sd` command auto-creates the config file with
+sensible per-platform defaults. Locations:
+
+| OS      | Config path                                     |
+| ------- | ----------------------------------------------- |
+| Windows | `%APPDATA%\sdcli\config.toml`                   |
+| macOS   | `~/Library/Application Support/sdcli/config.toml` |
+| Linux   | `$XDG_CONFIG_HOME/sdcli/config.toml` (or `~/.config/sdcli/`) |
+
+Edit with `sd config edit` or change individual keys with
+`sd config set <dotted.key> <value>`.
 
 ## Command reference
 
@@ -96,7 +154,7 @@ Examples:
 sd gen "a serene mountain at sunrise"
 sd gen "warrior princess in armor" --ref portrait.png --denoise 0.55
 sd gen "an oil-painting of a fox" -m sd_xl_base_1.0.safetensors --size 1024x1024 -s 30
-sd gen "..." --batch 4 --seed 42 -o D:\out\hero.png
+sd gen "..." --batch 4 --seed 42 -o ~/Pictures/hero.png   # or D:\out\hero.png on Windows
 sd gen "..." --workflow my-pipeline.json
 ```
 
@@ -155,10 +213,20 @@ VRAM), model counts by type, recent outputs.
 sd config                       # show
 sd config get defaults.steps    # one value
 sd config set defaults.steps 30
-sd config edit                  # open in $EDITOR (notepad on Windows)
+sd config edit                  # opens in $VISUAL/$EDITOR (or notepad/nano fallback)
 sd config reset                 # restore defaults
 sd config path                  # print config path
 ```
+
+Key config entries that are platform-aware:
+
+| key                  | meaning                                                        |
+| -------------------- | -------------------------------------------------------------- |
+| `server.install_dir` | ComfyUI directory containing `main.py`                         |
+| `server.python`      | Python interpreter that runs ComfyUI (`.venv/bin/python` etc.) |
+| `server.launcher`    | Optional script to start the server (`.sh` or `.ps1`)          |
+| `server.log_path`    | Where ComfyUI stdout/stderr is captured                        |
+| `server.pid_path`    | PID file written by the Unix launcher (unused on Windows)      |
 
 ## Recommended models
 
@@ -186,10 +254,14 @@ sd models pull civitai:<modelVersionId>
 ## Architecture (short)
 
 ```
-sd  --(HTTP API)-->  ComfyUI server  --(ROCm)-->  AMD Radeon 8060S
+sd  --(HTTP API)-->  ComfyUI server  --(MPS / CUDA / ROCm)-->  GPU
 ↑                          ↑
 TOML config        workflow JSON templates parameterised at runtime
 ```
+
+Platform-specific glue (config dirs, process lookup, launcher choice)
+lives in `src/sdcli/platform_utils.py` so the rest of the CLI is
+OS-agnostic.
 
 Workflow templates live at `src/sdcli/workflows/`. The `workflow.py`
 module substitutes `${name}` / `${name:int}` placeholders before
@@ -210,13 +282,26 @@ Generate a token at <https://civitai.com/user/account> (API Keys) and
 `sd config set download.civitai_token <TOKEN>`.
 
 **Downloads are slow.**
-Install aria2: `winget install aria2.aria2`. The CLI auto-detects it.
-With aria2 present, expect ~3–5 MB/s vs ~500 KB/s without.
+Install aria2 — `winget install aria2.aria2` (Windows) /
+`brew install aria2` (macOS) / `apt install aria2` (Debian/Ubuntu).
+The CLI auto-detects it. With aria2 present, expect ~3–5 MB/s vs
+~500 KB/s without.
 
 **Encoding errors on Windows console.**
 The CLI sets `PYTHONIOENCODING=utf-8` via `bin/sd.cmd`. If you call
 `python -m sdcli` directly from a non-UTF-8 codepage shell, set the
 env var manually first.
+
+**`sd server start` says "no launcher script configured" (Windows).**
+Set `server.launcher` to your `.ps1` launcher, e.g.
+`sd config set server.launcher D:\comfyui-rocm\start-detached.ps1`.
+On Unix the CLI falls back to a built-in `nohup` launcher if no script
+is configured.
+
+**ComfyUI starts but `sd gen` says "model not found".**
+By default the CLI looks under `paths.models_dir`. If you symlink in
+models from elsewhere, point it there: `sd config set paths.models_dir
+/path/to/models`. Then `sd models list` to confirm.
 
 ## Roadmap
 

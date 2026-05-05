@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# quickImage CLI entry point (POSIX).
+#
+# Calls `python -m sdcli`. Resolves the interpreter in this order:
+#   1. $SD_PYTHON if set and executable
+#   2. <repo>/.venv/bin/python (the venv setup.sh creates)
+#   3. python3 on PATH
+#   4. python on PATH
+set -e
+
+export PYTHONIOENCODING=utf-8
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$here/.." && pwd)"
+
+if [ -n "${SD_PYTHON:-}" ] && [ -x "$SD_PYTHON" ]; then
+    py="$SD_PYTHON"
+elif [ -x "$repo_root/.venv/bin/python" ]; then
+    py="$repo_root/.venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    py="python3"
+elif command -v python >/dev/null 2>&1; then
+    py="python"
+else
+    echo "[sd] no python interpreter found. Run setup.sh or set SD_PYTHON." >&2
+    exit 2
+fi
+
+exec "$py" -m sdcli "$@"

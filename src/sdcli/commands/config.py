@@ -1,14 +1,13 @@
 """``sd config`` — view and edit the CLI config file."""
 from __future__ import annotations
 
-import os
 import subprocess
-import sys
 
 import click
 from rich.syntax import Syntax
 
 from sdcli import config as config_mod
+from sdcli import platform_utils as plat
 from sdcli.utils.format import console, error, info, success
 
 
@@ -72,10 +71,12 @@ def cmd_reset(yes: bool) -> None:
 
 @config_cmd.command(name="edit")
 def cmd_edit() -> None:
-    """Open the config in your editor (``$EDITOR``, fall back to notepad on Windows)."""
+    """Open the config in your editor.
+
+    Resolution order: ``$VISUAL``, ``$EDITOR``, then a platform default
+    (``notepad`` on Windows, first of ``nano`` / ``vim`` / ``vi`` on Unix).
+    """
     cfg = config_mod.load()
-    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
-    if not editor:
-        editor = "notepad" if sys.platform == "win32" else "vi"
+    editor = plat.open_editor_command(None)
     info(f"opening {cfg.path} with {editor}")
     subprocess.run([editor, str(cfg.path)], check=False)
