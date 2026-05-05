@@ -29,7 +29,7 @@ from sdcli.utils.io import sha256_file, walk_models
 def models_cmd(ctx: click.Context) -> None:
     """Manage local models (checkpoints, loras, vae, ...)."""
     if ctx.invoked_subcommand is None:
-        ctx.invoke(cmd_list, type=None)
+        ctx.invoke(cmd_list, type_=None)
 
 
 @models_cmd.command(name="list")
