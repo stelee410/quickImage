@@ -1,0 +1,61 @@
+# Curated model recommendations for `sd models pull --recommend <key>`.
+#
+# Each entry must be downloadable WITHOUT login (free public weights).
+# For gated/private models, use direct civitai:/hf: refs with a token.
+
+[[recommend]]
+key = "sd15"
+name = "Stable Diffusion 1.5 base"
+description = "Smallest, fastest baseline. Good for quick tests, not best quality."
+type = "checkpoint"
+source = "hf:stable-diffusion-v1-5/stable-diffusion-v1-5:v1-5-pruned-emaonly.safetensors"
+size_mb = 3970
+
+[[recommend]]
+key = "sdxl"
+name = "Stable Diffusion XL 1.0 base"
+description = "Official SDXL base, 1024×1024 native, conservative content."
+type = "checkpoint"
+source = "hf:stabilityai/stable-diffusion-xl-base-1.0:sd_xl_base_1.0.safetensors"
+size_mb = 6940
+
+[[recommend]]
+key = "sdxl-refiner"
+name = "SDXL Refiner"
+description = "Pair with sdxl for sharper details (optional)."
+type = "checkpoint"
+source = "hf:stabilityai/stable-diffusion-xl-refiner-1.0:sd_xl_refiner_1.0.safetensors"
+size_mb = 6080
+
+[[recommend]]
+key = "realvis-xl"
+name = "RealVisXL V5.0 (fp16)"
+description = "Realistic SDXL fine-tune, freely public, no censorship guardrails."
+type = "checkpoint"
+source = "hf:SG161222/RealVisXL_V5.0:RealVisXL_V5.0_fp16.safetensors"
+size_mb = 6620
+
+[[recommend]]
+key = "flux-schnell"
+name = "Flux.1 Schnell (Apache 2.0)"
+description = "Black Forest Labs' fast Flux variant. Apache license = unrestricted use."
+type = "checkpoint"
+source = "hf:black-forest-labs/FLUX.1-schnell:flux1-schnell.safetensors"
+size_mb = 23800
+
+[[recommend]]
+key = "flux-dev"
+name = "Flux.1 Dev (gated, requires HF token + license accept)"
+description = "Higher quality than schnell; gated — set huggingface_token first."
+type = "checkpoint"
+source = "hf:black-forest-labs/FLUX.1-dev:flux1-dev.safetensors"
+size_mb = 23800
+requires_token = true
+
+[[recommend]]
+key = "sdxl-vae"
+name = "SDXL VAE (fp16 fix)"
+description = "Replacement VAE for SDXL — fixes some color/contrast issues."
+type = "vae"
+source = "hf:madebyollin/sdxl-vae-fp16-fix:sdxl_vae.safetensors"
+size_mb = 320

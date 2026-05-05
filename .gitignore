@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local dev artifacts
+*.log
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Local CLI runtime
+local_test_outputs/
+*.png
+!docs/**/*.png

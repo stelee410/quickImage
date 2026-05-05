@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quickimage"
+version = "0.1.0"
+description = "Production-grade CLI for txt2img/img2img on a local ComfyUI backend (AMD ROCm gfx1151 ready)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "stelee410", email = "stephen.liy@gmail.com" }
+]
+dependencies = [
+    "click>=8.1",
+    "rich>=13.0",
+    "requests>=2.31",
+    "huggingface_hub>=0.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-mock>=3",
+]
+
+[project.scripts]
+sd = "sdcli.cli:main"
+
+[project.urls]
+Repository = "https://github.com/stelee410/quickImage"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sdcli = ["workflows/*.json", "data/*.toml"]
